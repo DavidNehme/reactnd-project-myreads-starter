@@ -2,126 +2,36 @@ import React from "react";
 import "./App.css";
 import * as BooksAPI from "./BooksAPI";
 import { Link, Route } from "react-router-dom";
-
-// BooksAPI.getAll().then((books) => console.log(books));
-
-let allShelves = ["currentlyReading", "read", "wantToRead"];
-
-function idToName(id) {
-  return id
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/^[a-z]/, c => c.toUpperCase());
-}
-
-console.log(idToName("davidNehme"));
-
-function BookBucketSelector(props) {
-  const { currentShelf, bookId, changeBookShelf } = props;
-  const shelfOptions = allShelves.map(id => {
-    const name = idToName(id);
-    return (
-      <option key={`select.${bookId}.${id}`} value={id}>
-        {name}
-      </option>
-    );
-  });
-
-  return (
-    <select
-      defaultValue={currentShelf}
-      onChange={event => changeBookShelf(bookId, event.target.value)}
-    >
-      <option value="move" disabled>
-        Move to...
-      </option>
-      {shelfOptions}
-    </select>
-  );
-}
-
-function BookView(props) {
-  const { changeBookShelf } = props;
-  const { shelf, title, authors, imageLinks } = props.book;
-  return (
-    <div className="book">
-      <div className="book-top">
-        <div
-          className="book-cover"
-          style={{
-            width: 128,
-            height: 193,
-            backgroundImage: `url("${imageLinks.thumbnail}")`
-          }}
-        />
-        <div className="book-shelf-changer">
-          <BookBucketSelector
-            currentShelf={shelf}
-            bookId={props.book.id}
-            changeBookShelf={changeBookShelf}
-          />
-        </div>
-      </div>
-      <div className="book-title">{title}</div>
-      <div className="book-authors">{authors}</div>
-    </div>
-  );
-}
-
-class BookShelfView extends React.Component {
-  render() {
-    const { shelf, books, changeBookShelf } = this.props;
-    const shelfName = idToName(shelf);
-    return (
-      <div className="bookshelf">
-        <h2 className="bookshelf-title">{shelfName}</h2>
-        <div className="bookshelf-books">
-          <ol className="books-grid">
-            {books.map(book => (
-              <li key={`b.${book.id}`}>
-                <BookView book={book} changeBookShelf={changeBookShelf} />
-              </li>
-            ))}
-          </ol>
-        </div>
-      </div>
-    );
-  }
-}
-
-function BookShelvesView(props) {
-  const { books, shelves, changeBookShelf } = props;
-  const individualShelves = shelves.map(shelf => {
-    const booksOnShelf = books.filter(book => book.shelf === shelf);
-    return (
-      <BookShelfView
-        key={`bookShelf.${shelf}`}
-        shelf={shelf}
-        books={booksOnShelf}
-        changeBookShelf={changeBookShelf}
-      />
-    );
-  });
-
-  return (
-    <div className="list-books">
-      <div className="list-books-title">
-        <h1>MyReads</h1>
-      </div>
-      <div className="list-books-content">{individualShelves}</div>
-    </div>
-  );
-}
+import BookShelfView from "./bookShelfView.js";
+import BookShelvesView from "./bookShelvesView.js";
 
 class SearchPage extends React.Component {
   constructor(props) {
     super(props);
-    this.setState({ searchText: "", books: [] });
+    this.state = { searchText: "", books: [], ok: true };
   }
 
   handleChange(event) {
     const searchText = event.target.value;
+    if (searchText.length === 0) {
+      this.setState({ searchText: "", books: [] });
+      return;
+    }
     this.setState({ searchText });
-    //BooksAPI.search(searchText).then(books => this.setState({ books }));
+    BooksAPI.search(searchText).then(
+      books => {
+        if (books.error !== undefined) {
+          console.log(books.error);
+          this.setState({ books: [], ok: false });
+          return;
+        }
+        this.setState({ books, ok: true });
+      },
+      reason => {
+        console.log(`error ${reason}`);
+        this.setState({ books: [], ok: false });
+      }
+    );
   }
 
   render() {
@@ -130,10 +40,22 @@ class SearchPage extends React.Component {
         <div className="search-books-bar">
           <Link className="close-search" to="/" />
           <div className="search-books-input-wrapper">
-            <input type="text" placeholder="Search by title or author" />
+            <input
+              type="text"
+              placeholder="Search by title or author"
+              onChange={event => this.handleChange(event)}
+            />
           </div>
         </div>
-        {/* <BookShelfView shelf="search-books-results" books={this.state.books} /> */}
+        {this.state.books && (
+          <BookShelfView
+            shelf="search-books-results"
+            changeBookShelf={this.props.changeBookShelf}
+            books={this.state.books}
+            tracer="from_app"
+          />
+        )}
+        {this.state.books.length === 0 && <div>No books found</div>}
       </div>
     );
   }
@@ -141,32 +63,36 @@ class SearchPage extends React.Component {
 
 class BooksApp extends React.Component {
   state = {
-    books: [],
-    showSearchPage: false
+    books: []
   };
 
   refreshBookState() {
     BooksAPI.getAll().then(books => {
-      console.log(books);
       this.setState({ books });
     });
   }
 
   componentDidMount() {
-    console.log("componentDidMount");
     this.refreshBookState();
   }
 
   changeBookShelf(bookId, shelf) {
-    console.log(`changing book ${bookId} to shelf ${shelf}`);
     BooksAPI.update(bookId, shelf).then(() => this.refreshBookState());
   }
 
   render() {
+    const allShelves = ["currentlyReading", "read", "wantToRead"];
+
     const { books } = this.state;
+    const changeBookShelf = (bookId, shelf) =>
+      this.changeBookShelf(bookId, shelf);
     return (
       <div className="app">
-        <Route exact path="/search" render={() => <SearchPage />} />
+        <Route
+          exact
+          path="/search"
+          render={() => <SearchPage changeBookShelf={changeBookShelf} />}
+        />
         <Route
           exact
           path="/"
@@ -175,14 +101,15 @@ class BooksApp extends React.Component {
               <BookShelvesView
                 books={books}
                 shelves={allShelves}
-                changeBookShelf={(bookId, shelf) =>
-                  this.changeBookShelf(bookId, shelf)
-                }
+                changeBookShelf={changeBookShelf}
               />
+              )
               <div className="open-search">
                 <ul>
                   <li>
-                    <Link to="/search">Search</Link>
+                    <Link className="open-search" to="/search">
+                      Search
+                    </Link>
                   </li>
                   <li>
                     <Link to="/add">Add a book</Link>
